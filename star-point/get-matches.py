@@ -50,10 +50,11 @@ headers = {
     "Accept": "application/json"
 }
 
+# Only matches from yesterday
 yesterday = (pd.Timestamp("today") - pd.Timedelta(1, "D")).date()
 params = {
-    # "after_date": yesterday,
-    # "after_date": "2025-12-13"
+    "before_date": yesterday,
+    "after_date": yesterday
 }
 
 # Postgres configuration

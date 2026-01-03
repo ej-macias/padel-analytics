@@ -1,6 +1,6 @@
 on:
   schedule:
-    - cron: '0 7 * * *'    # UTC minutes hours day month day_of_week
+    - cron: '0 8 * * *'    # UTC minutes hours day month day_of_week
   workflow_dispatch:       # allows manual run from Actions UI
 
 jobs:
