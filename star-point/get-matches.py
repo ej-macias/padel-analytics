@@ -44,6 +44,7 @@ database = os.environ["POSTGRES_DB"]
 # Optional configuration
 MAX_RETRIES = int(os.environ.get("PADEL_MAX_RETRIES", "2"))
 REQUEST_TIMEOUT = int(os.environ.get("PADEL_REQUEST_TIMEOUT", "20"))  # seconds
+INCREMENTAL_MATCHES = bool(os.environ.get("PADEL_INCREMENTAL", "1"))  # default to True
 
 headers = {
     "Authorization": f"Bearer {API_TOKEN}",
@@ -51,11 +52,14 @@ headers = {
 }
 
 # Only matches from yesterday
-yesterday = (pd.Timestamp("today") - pd.Timedelta(1, "D")).date()
-params = {
-    "before_date": yesterday,
-    "after_date": yesterday
-}
+if INCREMENTAL_MATCHES:
+    yesterday = (pd.Timestamp("today") - pd.Timedelta(1, "D")).date()
+    params = {
+        "before_date": yesterday,
+        "after_date": yesterday
+    }
+else:
+    params = {}
 
 # Postgres configuration
 username = os.environ["POSTGRES_USER"]
@@ -167,10 +171,11 @@ def store_matches(df):
     try:
         engine = create_engine(engine_url, pool_pre_ping=True)
         with engine.begin() as conn:
+            if_exists = "append" if INCREMENTAL_MATCHES else "replace"
             table_name = "matches"
-            logger.info("Writing DataFrame to table '%s' (if_exists=append)", table_name)
+            logger.info("Writing DataFrame to table '%s' ('%s')", table_name, if_exists)
             # method='multi' can speed up bulk inserts; adjust chunksize if needed.
-            df.to_sql(table_name, conn, if_exists="append", index=False, method="multi")
+            df.to_sql(table_name, conn, if_exists=if_exists, index=False, method="multi")
     except SQLAlchemyError as e:
         logger.exception("Database error while writing matches: %s", e)
         raise
