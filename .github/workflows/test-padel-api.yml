@@ -27,4 +27,4 @@ jobs:
           POSTGRES_PWD: ${{ secrets.POSTGRES_PWD }}
           POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
-        run: python test-padel-api.py
+        run: python testing/test-padel-api.py

@@ -28,4 +28,4 @@ jobs:
           POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           INCREMENTAL_MATCHES: ${{ secrets.INCREMENTAL_MATCHES }}
-        run: python star-point/get-matches.py
+        run: python get-matches.py

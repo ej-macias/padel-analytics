@@ -1,6 +1,6 @@
 on:
   schedule:
-    - cron: '0 9 * * *'    # UTC minutes hours day month day_of_week
+    - cron: '30 8 * * *'    # UTC minutes hours day month day_of_week
   workflow_dispatch:       # allows manual run from Actions UI
 
 jobs:
@@ -26,4 +26,5 @@ jobs:
           POSTGRES_PWD: ${{ secrets.POSTGRES_PWD }}
           POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
-        run: python star-point/analyse-matches.py
+          INCREMENTAL_MATCHES: ${{ secrets.INCREMENTAL_MATCHES }}
+        run: python transform-match-data.py
