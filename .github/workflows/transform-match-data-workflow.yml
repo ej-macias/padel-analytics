@@ -26,5 +26,5 @@ jobs:
           POSTGRES_PWD: ${{ secrets.POSTGRES_PWD }}
           POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
-          INCREMENTAL_MATCHES: ${{ secrets.INCREMENTAL_MATCHES }}
+          INCREMENTAL_MATCHES: ${{ vars.INCREMENTAL_MATCHES }}
         run: python transform-match-data.py
