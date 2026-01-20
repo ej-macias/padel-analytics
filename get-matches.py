@@ -188,12 +188,12 @@ def main():
             store_data(df_scores, table_name="fact_point", schema="bronze")
             store_data(df_matches, table_name="fact_match", schema="bronze")
     except Exception as e:
-        logger.error("Matches script failed: %s", e)
+        logger.error("Get-matches script failed: %s", e)
         # non-zero exit so scheduler detects failure
         sys.exit(1)
 
     elapsed = time.time() - start
-    logger.info("Matches script completed successfully in %.2f seconds", elapsed)
+    logger.info("Get-matches script completed successfully in %d seconds", elapsed)
     sys.exit(0)
 
 if __name__ == "__main__":
