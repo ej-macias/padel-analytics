@@ -4,6 +4,7 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 import logging
+from datetime import datetime
 
 def get_engine():
     """
@@ -43,16 +44,45 @@ def get_engine():
     return create_engine(engine_url, pool_pre_ping=True), logger
 
 
-def read_db_table(table_name: str, schema: str) -> pd.DataFrame:
+
+def get_last_update_date(table_name: str, schema: str):
+    """
+    Run a SELECT query to find the latest created_at timestamp.
+    """
+    try:
+        engine, logger = get_engine()
+        with engine.connect() as conn:
+            df = pd.read_sql_query(text(f"SELECT MAX(created_at) FROM {schema}.{table_name}"), conn)
+            return df.iloc[0,0]
+    except SQLAlchemyError as e:
+        logger.exception("DB error while getting the last update time: %s", e)
+        raise
+    except Exception as e:
+        logger.exception("Unexpected error while getting the last update time: %s", e)
+        raise
+    finally:
+        try:
+            engine.dispose()
+        except Exception:
+            pass
+
+
+def read_db_table(table_name: str, schema: str, from_timestamp=None) -> pd.DataFrame:
     """
     Run a SELECT query and return a pandas DataFrame.
     """
     try:
         engine, logger = get_engine()
         with engine.connect() as conn:
-            df = pd.read_sql_table(table_name, conn, schema=schema)
+
+            if from_timestamp is None:
+                df = pd.read_sql_query(text(f"SELECT * FROM {schema}.{table_name}"), conn)
+            else:
+                df = pd.read_sql_query(text(f"SELECT * FROM {schema}.{table_name} WHERE created_at > '{from_timestamp}'"), conn)
+
             logger.info("Found %d rows in table %s.%s", len(df), schema, table_name)
             return df
+
     except SQLAlchemyError as e:
         logger.exception("DB error while writing matches: %s", e)
         raise

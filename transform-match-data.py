@@ -4,7 +4,7 @@ import time
 import pandas as pd
 import numpy as np
 import logging
-from utils.db_postgres import read_db_table, write_db
+from utils.db_postgres import read_db_table, write_db, get_last_update_date
 
 
 # Configure basic logging
@@ -37,19 +37,22 @@ password = os.environ["POSTGRES_PWD"]
 host = os.environ["POSTGRES_HOST"]
 database = os.environ["POSTGRES_DB"]
 
-def get_bronze_data(table_name):
-    df = read_db_table(table_name, schema="bronze")
-    return df
-
 
 def transform_matches(df_raw_data):
     df_matches = df_raw_data
-    df_matches["duration_minutes"] = (
+
+    duration = (
         df_raw_data["duration"]
-          .str.split(":", expand=True)
-          .astype(float)
-          .pipe(lambda x: x[0] * 60 + x[1])
+        .astype("string")
+        .str.split(":", n=1, expand=True)
+        .reindex(columns=[0, 1])
     )
+
+    df_matches["duration_minutes"] = (
+        pd.to_numeric(duration[0], errors="coerce") * 60
+        + pd.to_numeric(duration[1], errors="coerce")
+    )
+
     df_matches["created_at"] = pd.Timestamp("now")
     return df_matches.drop(columns=["duration"])
 
@@ -281,7 +284,13 @@ def store_silver_data(df, table_name):
 def main():
     start = time.time()
     try:
-        df_raw_matches = get_bronze_data(table_name="fact_match")
+
+        if INCREMENTAL_MATCHES == 1:
+            last_update = get_last_update_date(table_name="fact_match", schema="silver")
+            logger.info("Incremental mode: fetching matches created since %s", last_update.strftime("%Y-%m-%d %H:%M:%S"))
+            df_raw_matches = read_db_table(table_name="fact_match", schema="bronze", from_timestamp=last_update)
+        else:
+            df_raw_matches = read_db_table(table_name="fact_match", schema="bronze")
 
         if df_raw_matches.empty:
             logger.warning("No matches found in bronze layer.")
@@ -289,7 +298,8 @@ def main():
             df_trx_matches = transform_matches(df_raw_matches)
             store_silver_data(df_trx_matches, table_name="fact_match")
 
-        df_raw_scores = get_bronze_data(table_name="fact_point")
+        exit(0)
+        df_raw_scores = read_db_table(table_name="fact_point", schema="bronze")
 
         if df_raw_scores.empty:
             logger.warning("No point scores found in bronze layer.")
