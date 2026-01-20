@@ -281,40 +281,45 @@ def store_silver_data(df, table_name):
     write_db(df, table_name, schema="silver", if_exists=if_exists)
 
 
-def main():
-    start = time.time()
+def run_etl(table_name):
     try:
 
         if INCREMENTAL_MATCHES == 1:
-            last_update = get_last_update_date(table_name="fact_match", schema="silver")
-            logger.info("Incremental mode: fetching matches created since %s", last_update.strftime("%Y-%m-%d %H:%M:%S"))
-            df_raw_matches = read_db_table(table_name="fact_match", schema="bronze", from_timestamp=last_update)
+            last_update = get_last_update_date(table_name, schema="silver")
+            logger.info("Incremental mode: fetching rows from %s created since %s", table_name, last_update.strftime("%Y-%m-%d %H:%M:%S"))
+            df_raw_data = read_db_table(table_name, schema="bronze", from_timestamp=last_update)
         else:
-            df_raw_matches = read_db_table(table_name="fact_match", schema="bronze")
+            df_raw_data = read_db_table(table_name, schema="bronze")
 
-        if df_raw_matches.empty:
-            logger.warning("No matches found in bronze layer.")
+        if df_raw_data.empty:
+            logger.warning("No rows found in bronze.%s.", table_name)
         else:
-            df_trx_matches = transform_matches(df_raw_matches)
-            store_silver_data(df_trx_matches, table_name="fact_match")
+            if table_name == "fact_match":
+                df_trx_data = transform_matches(df_raw_data)
+            elif table_name == "fact_point":
+                df_trx_data = transform_scores(df_raw_data)
+            else:
+                logger.error("Unknown table name: %s", table_name)
+                sys.exit(1)
 
-        exit(0)
-        df_raw_scores = read_db_table(table_name="fact_point", schema="bronze")
-
-        if df_raw_scores.empty:
-            logger.warning("No point scores found in bronze layer.")
-        else:
-            df_trx_scores = transform_scores(df_raw_scores)
-            store_silver_data(df_trx_scores, table_name="fact_point")
+        store_silver_data(df_trx_data, table_name=table_name)
 
     except Exception as e:
-        logger.error("Match transformation script failed: %s", e)
-        # non-zero exit so scheduler detects failure
+        logger.error("%s transformation script failed: %s", table_name, e)
         sys.exit(1)
 
+    return df_trx_data
+
+
+def main():
+    start = time.time()
+ 
+    df_trx_matches = run_etl(table_name="fact_match")
+    df_trx_scores = run_etl(table_name="fact_point")
+
     elapsed = time.time() - start
-    logger.info("Processed %d matches, %.1fK points, %.1f%% deuce, %.1f%% tie-break, %.1f%% game points, %.1f%% set points, %.1f%% match points", len(df_trx_matches), round(len(df_trx_scores)/1000,1), round(100 * df_trx_scores["is_deuce"].mean(),1), round(100 * df_trx_scores["is_tiebreak"].mean(),1), round(100 * df_trx_scores["is_game_point"].mean(),1), round(100 * df_trx_scores["is_set_point"].mean(),1), round(100 * df_trx_scores["is_match_point"].mean(),1))
-    logger.info("Match transformation script completed successfully in %.2f seconds", elapsed)
+    logger.info("Processed %d matches, %dK points, %.1f%% deuce, %.1f%% tie-break, %.d%% game points, %d%% set points, %d%% match points", len(df_trx_matches), round(len(df_trx_scores)/1000,1), round(100 * df_trx_scores["is_deuce"].mean(),1), round(100 * df_trx_scores["is_tiebreak"].mean(),1), round(100 * df_trx_scores["is_game_point"].mean(),1), round(100 * df_trx_scores["is_set_point"].mean(),1), round(100 * df_trx_scores["is_match_point"].mean(),1))
+    logger.info("Match transformation script completed successfully in %d seconds", elapsed)
     sys.exit(0)
 
 if __name__ == "__main__":
