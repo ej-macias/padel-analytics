@@ -26,7 +26,7 @@ jobs:
           POSTGRES_PWD: ${{ secrets.POSTGRES_PWD }}
           POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
-          POSTGRES_DB: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
-          POSTGRES_DB: ${{ secrets.GOOGLE_SHEET_ID_PADEL_STATS }}
+          GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
+          GOOGLE_SHEET_ID_PADEL_STATS: ${{ secrets.GOOGLE_SHEET_ID_PADEL_STATS }}
           INCREMENTAL_MATCHES: ${{ vars.INCREMENTAL_MATCHES }}
         run: python produce-match-stats.py
