@@ -18,7 +18,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas sqlalchemy psycopg2-binary gspread base64
+          pip install pandas sqlalchemy psycopg2-binary gspread
 
       - name: Run script
         env:
