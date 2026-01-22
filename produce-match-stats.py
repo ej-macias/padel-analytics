@@ -69,14 +69,13 @@ def build_stats(df_matches, df_scores):
     # Sets with tie-breaks
 
 
-
     # Final join
     df_stats = df_matches.merge(df_stats, left_on="id", right_on="match_id", how="left").drop(columns=["id"])
     
-    print("Match Stats Rows: " + str(len(df_stats)))
-    print(df_stats.columns)
-    print(df_stats.head())
-    exit(0)
+    # print("Match Stats Rows: " + str(len(df_stats)))
+    # print(df_stats.columns)
+    # print(df_stats.head())
+    # exit(0)
     
     return df_stats
 
