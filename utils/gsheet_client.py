@@ -1,8 +1,8 @@
 import os
 import sys
 import json
+import base64
 import gspread
-from google.oauth2.service_account import Credentials
 import logging
 import pandas as pd
 
@@ -12,33 +12,28 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
     
-def get_client(worksheet_name: str) -> gspread.Client:
-    """
-    Get Google sheet ID and Authenticate using a service account JSON from env vars.
-    """
-    REQUIRED_ENVS = ["GOOGLE_SERVICE_ACCOUNT_JSON"]
+REQUIRED_ENVS = ["GOOGLE_SERVICE_ACCOUNT", "GOOGLE_SHEET_ID_PADEL_STATS"]
 
-    if worksheet_name == "match_summary":
-        sheet_id = os.environ["GOOGLE_SHEET_ID_MATCH_SUMMARY"]
-        if sheet_id is None:
-            logger.error(
-                "Missing required environment variable: GOOGLE_SHEET_ID_MATCH_SUMMARY"
-            )
-            sys.exit(2)
-        
-    else:
-        logger.error("Unknown worksheet name: %s", worksheet_name)
-        sys.exit(2)
+def _require_envs(logger: logging.Logger) -> None:
+    missing = [v for v in REQUIRED_ENVS if not os.environ.get(v)]
+    if missing:
+        logger.error("Missing required environment variables: %s", ", ".join(missing))
+        raise RuntimeError(f"Missing required env vars: {', '.join(missing)}")
 
-    sa_json = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
-    if sa_json is None:
-        logger.error(
-            "Missing required environment variable: GOOGLE_SERVICE_ACCOUNT_JSON"
-        )
-        sys.exit(2)
+
+def open_sheet() -> gspread.Spreadsheet:
+    """
+    Authenticate with Google Service Account and open the Google Sheet.
+    """
+    _require_envs(LOGGER)
+
+    # Decode the Google Service Account from environment variable
+    GOOGLE_SA = os.environ.get("GOOGLE_SERVICE_ACCOUNT")
+    sa_decoded = base64.b64decode(GOOGLE_SA, validate=True)
+    sa_json = json.loads(sa_decoded)
 
     # Google Sheets API scope
     SCOPE = [
@@ -46,41 +41,49 @@ def get_client(worksheet_name: str) -> gspread.Client:
         "https://www.googleapis.com/auth/drive",
     ]
 
-    creds = Credentials.from_service_account_info(
-        json.loads(sa_json),
-        scopes=SCOPE,
-    )
-    return gspread.authorize(creds), sheet_id
+    # Authenticate and create the gspread client
+    try:
+        gc = gspread.service_account_from_dict(sa_json, scopes=SCOPE)
+    except Exception as e:
+        LOGGER.error("Failed to authenticate with Google Sheets API: %s", e)
+        sys.exit(2)
+
+    LOGGER.info("Authenticated with Google Sheets API successfully.")
+
+    # Open the Google Sheet
+    try:
+        sheet_id = os.environ["GOOGLE_SHEET_ID_PADEL_STATS"]
+        sh = gc.open_by_key(sheet_id)
+    except Exception as e:
+        LOGGER.error("Failed to open Google Sheet: %s", e)
+        sys.exit(2)
+
+    LOGGER.info("Opened Google Sheet successfully.")
+    return sh
 
 
-def write_dataframe(
-    worksheet_name: str,
-    df,
-):
+def export_df_to_sheet(worksheet_name: str, df: pd.DataFrame, append_rows: bool = False) -> None:
     """
     Clear and overwrite an existing worksheet with a DataFrame.
     """
-    gc, sheet_id = get_client()
-    sh = gc.open_by_key(sheet_id)
-    ws = sh.worksheet(worksheet_name)
+    sh = open_sheet()
+    try:
+        ws = sh.worksheet(worksheet_name)
+    except gspread.exceptions.WorksheetNotFound:
+        ws = sh.add_worksheet(title=worksheet_name, rows="1000", cols="20")
 
     # Replace NaN/NaT so Sheets doesn't get "nan"
     df = df.astype(object).where(pd.notna(df), "")
 
-    # Sheets-friendly values
-    df = df.astype(object).where(df.notna(), "")
-    values = [df.columns.tolist()] + df.values.tolist()
+    values = df.values.tolist()
+    headers = df.columns.tolist()
 
-    ws.clear()
-    ws.update(values)
+    if append_rows and ws.row_count > 0 and ws.get_all_values():
+        # Append only data rows (no header)
+        ws.append_rows(values, value_input_option="USER_ENTERED")
+    else:
+        # Overwrite sheet (clear + header + data)
+        ws.clear()
+        ws.update([headers] + values, value_input_option="USER_ENTERED")
 
-    """
-    # Archive previous sheet and create new sheet
-    yesterday = pd.Timestamp.now() - pd.Timedelta(days=1)
-    ws.update_title(f"{sheet_name}_{yesterday.strftime('%Y%m%d')}")
-    sh.add_worksheet(title=sheet_name, rows="1000", cols="20")
-    ws = sh.worksheet(worksheet_name)
-    ws.update(values)
-    """
-
-    logger.info(f"Exported {len(df)} rows x {len(df.columns)} cols to sheet '{worksheet_name}'.")
+    LOGGER.info(f"Exported {len(df)} rows x {len(df.columns)} cols to sheet '{worksheet_name}'.")

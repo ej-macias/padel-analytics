@@ -15,27 +15,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Required environment variables
-REQUIRED_ENVS = [
-    "POSTGRES_USER",
-    "POSTGRES_PWD",
-    "POSTGRES_HOST",
-    "POSTGRES_DB",
-]
-
-missing = [v for v in REQUIRED_ENVS if not os.environ.get(v)]
-if missing:
-    logger.error("Missing required environment variables: %s", ", ".join(missing))
-    sys.exit(2)  # non-zero so schedulers know it failed
-
 # Optional configuration
 INCREMENTAL_MATCHES = int(os.environ.get("INCREMENTAL_MATCHES", "0"))  # default to False (full refresh)
-
-# Postgres configuration
-username = os.environ["POSTGRES_USER"]
-password = os.environ["POSTGRES_PWD"]
-host = os.environ["POSTGRES_HOST"]
-database = os.environ["POSTGRES_DB"]
 
 
 def transform_matches(df_raw_data):

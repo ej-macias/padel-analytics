@@ -208,3 +208,9 @@ __marimo__/
 
 # Visual Studio Code
 .code-workspace
+
+# Mac files
+.DS_Store
+
+# Google API
+credentials.json

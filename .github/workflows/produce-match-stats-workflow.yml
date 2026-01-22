@@ -1,0 +1,32 @@
+on:
+  schedule:
+    - cron: '0 9 * * *'    # UTC minutes hours day month day_of_week
+  workflow_dispatch:       # allows manual run from Actions UI
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas sqlalchemy psycopg2-binary gspread base64
+
+      - name: Run script
+        env:
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PWD: ${{ secrets.POSTGRES_PWD }}
+          POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_DB: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
+          POSTGRES_DB: ${{ secrets.GOOGLE_SHEET_ID_PADEL_STATS }}
+          INCREMENTAL_MATCHES: ${{ vars.INCREMENTAL_MATCHES }}
+        run: python produce-match-stats.py
