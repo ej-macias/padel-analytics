@@ -67,14 +67,89 @@ def build_stats(df_matches, df_scores):
     df_stats = df_stats.merge(df_games_with_deuce, on="match_id", how="left")
     
     # Sets with tie-breaks
+    df_tiebreaks = (
+        df_scores[df_scores["is_tiebreak"] == True]
+        .groupby("match_id")["set_number"]
+        .nunique()
+        .rename("sets_with_tiebreak")
+        .reset_index()
+    )
+    df_stats = df_stats.merge(df_tiebreaks, on="match_id", how="left")
+    df_stats["sets_with_tiebreak"] = df_stats["sets_with_tiebreak"].fillna(0).astype(int)
 
+    # Tie-breaks won by each team, per match, 
+    # 1) Keep only the last point of each tie-break game
+    tb_last = (
+        df_scores.loc[df_scores["is_tiebreak"] & df_scores["is_game_point"]]
+        [["match_id", "set_number", "game_number", "point_score_team_1", "point_score_team_2"]]
+        .drop_duplicates(subset=["match_id", "set_number", "game_number"])
+        .copy()
+    )
+
+    # 2) Coerce pre-point tie-break scores to numeric; "A" -> NaN (won't crash)
+    tb_last["p1"] = pd.to_numeric(tb_last["point_score_team_1"], errors="coerce")
+    tb_last["p2"] = pd.to_numeric(tb_last["point_score_team_2"], errors="coerce")
+
+    # 3) Winner logic using PRE-point scores
+    team1_wins = (tb_last["p1"] + 1 >= 7) & ((tb_last["p1"] + 1 - tb_last["p2"]) >= 2)
+    team2_wins = (tb_last["p2"] + 1 >= 7) & ((tb_last["p2"] + 1 - tb_last["p1"]) >= 2)
+
+    tb_last["team_1_won_tb"] = team1_wins.fillna(False)
+    tb_last["team_2_won_tb"] = team2_wins.fillna(False)
+
+    # 4) Aggregate per match
+    df_tb_wins_match = (
+        tb_last
+        .groupby("match_id", as_index=False)
+        .agg(
+            tie_breaks_won_team_1=("team_1_won_tb", "sum"),
+            tie_breaks_won_team_2=("team_2_won_tb", "sum"),
+        )
+    )
+
+    df_tb_wins_match[["tie_breaks_won_team_1", "tie_breaks_won_team_2"]] = (
+        df_tb_wins_match[["tie_breaks_won_team_1", "tie_breaks_won_team_2"]].fillna(0).astype(int)
+    )
+
+    df_stats = df_stats.merge(df_tb_wins_match, on="match_id", how="left")
+    df_stats[["tie_breaks_won_team_1", "tie_breaks_won_team_2"]] = (
+        df_stats[["tie_breaks_won_team_1", "tie_breaks_won_team_2"]].fillna(0).astype(int)
+    )
+
+
+    # Avg points per game for each match
+    df_points_per_game = (
+        df_scores
+        .groupby(["match_id", "set_number", "game_number"])
+        .size()
+        .rename("points_per_game")
+        .reset_index()
+    )
+    df_avg_points_per_game = (
+        df_points_per_game
+        .groupby("match_id")["points_per_game"]
+        .mean().round(1)
+        .rename("avg_points_per_game")
+        .reset_index()
+    )
+    df_stats = df_stats.merge(df_avg_points_per_game, on="match_id", how="left")
+
+    # Max points in a single game per match
+    df_max_points_in_game = (
+        df_points_per_game
+        .groupby("match_id")["points_per_game"]
+        .max()
+        .rename("max_points_in_game")
+        .reset_index()
+    )
+    df_stats = df_stats.merge(df_max_points_in_game, on="match_id", how="left")
 
     # Final join
     df_stats = df_matches.merge(df_stats, left_on="id", right_on="match_id", how="left").drop(columns=["id"])
     
     # print("Match Stats Rows: " + str(len(df_stats)))
     # print(df_stats.columns)
-    # print(df_stats.head())
+    # print(df_stats.loc[:, ["match_id", "sets_with_tiebreak", "avg_points_per_game", "max_points_in_game", "tie_breaks_won_team_1", "tie_breaks_won_team_2"]].sort_values(["match_id"]).head(10).to_string())
     # exit(0)
     
     return df_stats
