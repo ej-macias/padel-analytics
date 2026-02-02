@@ -19,28 +19,29 @@ logger = logging.getLogger(__name__)
 INCREMENTAL_MATCHES = int(os.environ.get("INCREMENTAL_MATCHES", "0"))  # default to False (full refresh)
 
 
-def build_stats(df_matches, df_scores):
-
-    # Total Points per Match
+def get_simple_totals(df_matches, df_scores):
+    # Total Points per Match
     df_total_points = df_scores.groupby("match_id").size().rename("total_points").reset_index()
-    df_stats = df_total_points
-
-    # Total Games per Match
-    # count unique match_id, set_number, game_number
+    
+    # Total Games per Match
+    # count unique match_id, set_number, game_number
     df_total_games = df_scores.groupby(["match_id", "set_number", "game_number"]).size().reset_index()
     df_total_games = df_total_games.groupby("match_id").size().rename("total_games").reset_index()
-    df_stats = df_stats.merge(df_total_games, on="match_id", how="left")
+    
+    # Final join
+    df_totals = df_matches.merge(df_total_points, left_on="id", right_on="match_id", how="left")
+    return df_totals.merge(df_total_games, on="match_id", how="left")
 
+
+def get_deuce_stats(df_scores):
     # Total Deuce points
     df_deuce_points = (
-        df_scores[df_scores["is_deuce"] == True]
-        .groupby("match_id")
-        .size()
+        df_scores #[df_scores["is_deuce"] == True]
+        .groupby("match_id")["is_deuce"]
+        .sum() #.size()
         .rename("total_deuces")
         .reset_index()
     )
-    df_stats = df_stats.merge(df_deuce_points, on="match_id", how="left")
-    df_stats["total_deuces"] = df_stats["total_deuces"].fillna(0).astype(int)
     
     # Number of deuce points per game. If no deuce points, then 0
     df_deuce_count = (
@@ -64,8 +65,10 @@ def build_stats(df_matches, df_scores):
         .reset_index()
     )
 
-    df_stats = df_stats.merge(df_games_with_deuce, on="match_id", how="left")
-    
+    return df_deuce_points.merge(df_games_with_deuce, on="match_id", how="left")
+
+
+def get_tiebreak_stats(df_matches, df_scores):
     # Sets with tie-breaks
     df_tiebreaks = (
         df_scores[df_scores["is_tiebreak"] == True]
@@ -74,8 +77,18 @@ def build_stats(df_matches, df_scores):
         .rename("sets_with_tiebreak")
         .reset_index()
     )
-    df_stats = df_stats.merge(df_tiebreaks, on="match_id", how="left")
-    df_stats["sets_with_tiebreak"] = df_stats["sets_with_tiebreak"].fillna(0).astype(int)
+
+    # Attach to full match list and fill missing with 0
+    df_tiebreaks = (
+        df_matches[["id"]].rename(columns={"id": "match_id"})
+        .merge(df_tiebreaks, on="match_id", how="left")
+    )
+
+    df_tiebreaks["sets_with_tiebreak"] = (
+        df_tiebreaks["sets_with_tiebreak"]
+        .fillna(0)
+        .astype(int)
+    )
 
     # Tie-breaks won by each team, per match, 
     # 1) Keep only the last point of each tie-break game
@@ -111,12 +124,15 @@ def build_stats(df_matches, df_scores):
         df_tb_wins_match[["tie_breaks_won_team_1", "tie_breaks_won_team_2"]].fillna(0).astype(int)
     )
 
-    df_stats = df_stats.merge(df_tb_wins_match, on="match_id", how="left")
-    df_stats[["tie_breaks_won_team_1", "tie_breaks_won_team_2"]] = (
-        df_stats[["tie_breaks_won_team_1", "tie_breaks_won_team_2"]].fillna(0).astype(int)
+    df_tiebreaks = df_tiebreaks.merge(df_tb_wins_match, on="match_id", how="left")
+    df_tiebreaks[["tie_breaks_won_team_1", "tie_breaks_won_team_2"]] = (
+        df_tiebreaks[["tie_breaks_won_team_1", "tie_breaks_won_team_2"]].fillna(0).astype(int)
     )
 
+    return df_tiebreaks
 
+
+def get_points_per_game_stats(df_scores):
     # Avg points per game for each match
     df_points_per_game = (
         df_scores
@@ -125,6 +141,7 @@ def build_stats(df_matches, df_scores):
         .rename("points_per_game")
         .reset_index()
     )
+
     df_avg_points_per_game = (
         df_points_per_game
         .groupby("match_id")["points_per_game"]
@@ -132,7 +149,6 @@ def build_stats(df_matches, df_scores):
         .rename("avg_points_per_game")
         .reset_index()
     )
-    df_stats = df_stats.merge(df_avg_points_per_game, on="match_id", how="left")
 
     # Max points in a single game per match
     df_max_points_in_game = (
@@ -142,15 +158,32 @@ def build_stats(df_matches, df_scores):
         .rename("max_points_in_game")
         .reset_index()
     )
-    df_stats = df_stats.merge(df_max_points_in_game, on="match_id", how="left")
-
-    # Final join
-    df_stats = df_matches.merge(df_stats, left_on="id", right_on="match_id", how="left").drop(columns=["id"])
     
-    # print("Match Stats Rows: " + str(len(df_stats)))
-    # print(df_stats.columns)
-    # print(df_stats.loc[:, ["match_id", "sets_with_tiebreak", "avg_points_per_game", "max_points_in_game", "tie_breaks_won_team_1", "tie_breaks_won_team_2"]].sort_values(["match_id"]).head(10).to_string())
-    # exit(0)
+    return df_avg_points_per_game.merge(df_max_points_in_game, on="match_id", how="left")
+
+
+def build_stats(df_matches, df_scores):
+
+    df_simple_totals = get_simple_totals(df_matches, df_scores)
+    df_stats = df_simple_totals[["match_id", "total_points", "total_games"]].copy()
+
+    df_deuce_stats = get_deuce_stats(df_scores)
+    df_stats = df_stats.merge(df_deuce_stats, on="match_id", how="left")
+
+    df_tiebreak_stats = get_tiebreak_stats(df_matches, df_scores)
+    df_stats = df_stats.merge(df_tiebreak_stats, on="match_id", how="left")
+
+    df_points_per_game_stats = get_points_per_game_stats(df_scores)
+    df_stats = df_stats.merge(df_points_per_game_stats, on="match_id", how="left")
+
+    print("Match Stats Rows: " + str(len(df_stats)))
+    print(df_stats.columns)
+    print(df_stats[["match_id", "avg_points_per_game", "max_points_in_game"]].sort_values(["match_id"]).head(10).to_string())
+    exit(0)
+
+        
+    ########### CONTINUE WITH MORE STATS ###########
+
     
     return df_stats
 
