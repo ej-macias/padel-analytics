@@ -162,8 +162,164 @@ def get_points_per_game_stats(df_scores):
     return df_avg_points_per_game.merge(df_max_points_in_game, on="match_id", how="left")
 
 
-def build_stats(df_matches, df_scores):
+def get_game_points_saved(df_scores):
+    # Ensure points are in chronological order within each game
+    dfp = df_scores.sort_values(["match_id", "set_number", "game_number", "point_number"]).copy()
 
+    # Only regular games (tie-breaks have different logic)
+    dfp = dfp[~dfp["is_tiebreak"]].copy()
+
+    # Normalize to strings (in case you have ints mixed in)
+    p1 = dfp["point_score_team_1"].astype(str)
+    p2 = dfp["point_score_team_2"].astype(str)
+
+    # Game point opportunities (pre-point)
+    gp_t1 = (p1 == "A") | ((p1 == "40") & (p2.isin(["0", "15", "30"])))
+    gp_t2 = (p2 == "A") | ((p2 == "40") & (p1.isin(["0", "15", "30"])))
+
+    # Faced = opponent has a game point
+    dfp["gp_faced_t1"] = gp_t2
+    dfp["gp_faced_t2"] = gp_t1
+
+    game_keys = ["match_id", "set_number", "game_number"]
+
+    # Is there another point after this one in the same game?
+    dfp["has_next_point_in_game"] = (
+        dfp.groupby(game_keys)["point_number"].shift(-1).notna()
+    )
+
+    dfp["gp_saved_t1"] = dfp["gp_faced_t1"] & dfp["has_next_point_in_game"]
+    dfp["gp_saved_t2"] = dfp["gp_faced_t2"] & dfp["has_next_point_in_game"]
+
+    df_game_points_match = (
+    dfp.groupby("match_id", as_index=False)
+       .agg(
+           game_points_faced_team_1=("gp_faced_t1", "sum"),
+           game_points_saved_team_1=("gp_saved_t1", "sum"),
+           game_points_faced_team_2=("gp_faced_t2", "sum"),
+           game_points_saved_team_2=("gp_saved_t2", "sum"),
+       )
+    )
+
+    # Convert booleans summed to ints cleanly
+    cols = [
+        "game_points_faced_team_1", "game_points_saved_team_1",
+        "game_points_faced_team_2", "game_points_saved_team_2",
+    ]
+    df_game_points_match[cols] = df_game_points_match[cols].astype(int)
+    
+    return df_game_points_match
+
+
+def add_set_point_flqgs(df_scores):
+    dfp = df_scores.sort_values(
+        ["match_id", "set_number", "game_number", "point_number"]
+    ).copy()
+
+    # --- reuse the same set-point logic (inline to keep this function standalone) ---
+    g1 = pd.to_numeric(dfp["game_score_team_1"], errors="coerce")
+    g2 = pd.to_numeric(dfp["game_score_team_2"], errors="coerce")
+
+    dfp["sp_for_t1"] = False
+    dfp["sp_for_t2"] = False
+
+    reg = ~dfp["is_tiebreak"]
+    p1 = dfp.loc[reg, "point_score_team_1"].astype(str)
+    p2 = dfp.loc[reg, "point_score_team_2"].astype(str)
+
+    gp_t1 = (p1 == "A") | ((p1 == "40") & (p2.isin(["0", "15", "30"])))
+    gp_t2 = (p2 == "A") | ((p2 == "40") & (p1.isin(["0", "15", "30"])))
+
+    set_can_end_t1 = ((g1 == 5) & (g2 <= 4)) | ((g1 == 6) & (g2 == 5))
+    set_can_end_t2 = ((g2 == 5) & (g1 <= 4)) | ((g2 == 6) & (g1 == 5))
+
+    dfp.loc[reg, "sp_for_t1"] = gp_t1.values & set_can_end_t1.loc[reg].fillna(False).values
+    dfp.loc[reg, "sp_for_t2"] = gp_t2.values & set_can_end_t2.loc[reg].fillna(False).values
+
+    tb = dfp["is_tiebreak"]
+    tb_p1 = pd.to_numeric(dfp.loc[tb, "point_score_team_1"], errors="coerce")
+    tb_p2 = pd.to_numeric(dfp.loc[tb, "point_score_team_2"], errors="coerce")
+
+    dfp.loc[tb, "sp_for_t1"] = (((tb_p1 + 1) >= 7) & (((tb_p1 + 1) - tb_p2) >= 2)).fillna(False).values
+    dfp.loc[tb, "sp_for_t2"] = (((tb_p2 + 1) >= 7) & (((tb_p2 + 1) - tb_p1) >= 2)).fillna(False).values
+
+    return dfp
+
+
+def get_set_points_saved(df_scores):
+    dfp = add_set_point_flqgs(df_scores)
+
+    # Faced = opponent has set point
+    dfp["sp_faced_t1"] = dfp["sp_for_t2"]
+    dfp["sp_faced_t2"] = dfp["sp_for_t1"]
+
+    # Saved = faced AND set continues after this point
+    dfp["has_next_point_in_set"] = (
+        dfp.groupby(["match_id", "set_number"])["point_number"].shift(-1).notna()
+    )
+
+    dfp["sp_saved_t1"] = dfp["sp_faced_t1"] & dfp["has_next_point_in_set"]
+    dfp["sp_saved_t2"] = dfp["sp_faced_t2"] & dfp["has_next_point_in_set"]
+
+    out = (
+        dfp.groupby("match_id", as_index=False)
+           .agg(
+               set_points_faced_team_1=("sp_faced_t1", "sum"),
+               set_points_saved_team_1=("sp_saved_t1", "sum"),
+               set_points_faced_team_2=("sp_faced_t2", "sum"),
+               set_points_saved_team_2=("sp_saved_t2", "sum"),
+           )
+    )
+
+    cols = [
+        "set_points_faced_team_1", "set_points_saved_team_1",
+        "set_points_faced_team_2", "set_points_saved_team_2",
+    ]
+    out[cols] = out[cols].astype(int)
+    return out
+
+
+def get_match_points_saved(df_scores, sets_to_win = 2):
+    dfp = add_set_point_flqgs(df_scores)
+
+    # --- match point = set point + already has (sets_to_win - 1) sets won ---
+    s1 = pd.to_numeric(dfp["set_score_team_1"], errors="coerce").fillna(0).astype(int)
+    s2 = pd.to_numeric(dfp["set_score_team_2"], errors="coerce").fillna(0).astype(int)
+
+    dfp["mp_for_t1"] = dfp["sp_for_t1"] & (s1 >= (sets_to_win - 1))
+    dfp["mp_for_t2"] = dfp["sp_for_t2"] & (s2 >= (sets_to_win - 1))
+
+    # Faced = opponent has match point
+    dfp["mp_faced_t1"] = dfp["mp_for_t2"]
+    dfp["mp_faced_t2"] = dfp["mp_for_t1"]
+
+    # Saved = faced AND match continues after this point
+    dfp["has_next_point_in_match"] = (
+        dfp.groupby(["match_id"])["point_number"].shift(-1).notna()
+    )
+
+    dfp["mp_saved_t1"] = dfp["mp_faced_t1"] & dfp["has_next_point_in_match"]
+    dfp["mp_saved_t2"] = dfp["mp_faced_t2"] & dfp["has_next_point_in_match"]
+
+    out = (
+        dfp.groupby("match_id", as_index=False)
+           .agg(
+               match_points_faced_team_1=("mp_faced_t1", "sum"),
+               match_points_saved_team_1=("mp_saved_t1", "sum"),
+               match_points_faced_team_2=("mp_faced_t2", "sum"),
+               match_points_saved_team_2=("mp_saved_t2", "sum"),
+           )
+    )
+
+    cols = [
+        "match_points_faced_team_1", "match_points_saved_team_1",
+        "match_points_faced_team_2", "match_points_saved_team_2",
+    ]
+    out[cols] = out[cols].astype(int)
+    return out
+
+
+def build_stats(df_matches, df_scores):
     df_simple_totals = get_simple_totals(df_matches, df_scores)
     df_stats = df_simple_totals[["match_id", "total_points", "total_games"]].copy()
 
@@ -176,14 +332,14 @@ def build_stats(df_matches, df_scores):
     df_points_per_game_stats = get_points_per_game_stats(df_scores)
     df_stats = df_stats.merge(df_points_per_game_stats, on="match_id", how="left")
 
-    print("Match Stats Rows: " + str(len(df_stats)))
-    print(df_stats.columns)
-    print(df_stats[["match_id", "avg_points_per_game", "max_points_in_game"]].sort_values(["match_id"]).head(10).to_string())
-    exit(0)
+    df_game_points_saved = get_game_points_saved(df_scores)
+    df_stats = df_stats.merge(df_game_points_saved, on="match_id", how="left")
 
-        
-    ########### CONTINUE WITH MORE STATS ###########
+    df_set_points_saved = get_set_points_saved(df_scores)
+    df_stats = df_stats.merge(df_set_points_saved, on="match_id", how="left")
 
+    df_match_points_saved = get_match_points_saved(df_scores)
+    df_stats = df_stats.merge(df_match_points_saved, on="match_id", how="left")
     
     return df_stats
 
