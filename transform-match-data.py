@@ -100,16 +100,17 @@ def add_set_scores(df):
     # 5) Set score BEFORE current set (shift)
     last_row_per_set = last_row_per_set.sort_values(["match_id", "set_number"])
 
+    s = last_row_per_set.groupby("match_id")["set_win_team_1"].cumsum()
     last_row_per_set["set_score_team_1"] = (
-        last_row_per_set.groupby("match_id")["set_win_team_1"]
-        .cumsum()
+        s.groupby(last_row_per_set["match_id"])
         .shift(1)
         .fillna(0)
         .astype(int)
     )
+
+    s = last_row_per_set.groupby("match_id")["set_win_team_2"].cumsum()
     last_row_per_set["set_score_team_2"] = (
-        last_row_per_set.groupby("match_id")["set_win_team_2"]
-        .cumsum()
+        s.groupby(last_row_per_set["match_id"])
         .shift(1)
         .fillna(0)
         .astype(int)
