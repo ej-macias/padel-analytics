@@ -369,7 +369,9 @@ def main():
             logger.warning("No rows found in Silver schema.")
         else:
             df_stats = build_stats(df_matches, df_scores)
-            store_gold_data(df_stats)
+            df_gold = df_matches.rename(columns={"id": "match_id"})
+            df_gold = df_gold.merge(df_stats, on="match_id", how="left")
+            store_gold_data(df_gold)
             logger.info("Created stats from %d matches and %dK points", len(df_matches), round(len(df_scores)/1000,1))
             # logger.info("Created stats from %d matches and %dK points, %.1f%% deuce, %.1f%% tie-break, %.d%% game points, %d%% set points, %d%% match points", len(df_matches), round(len(df_scores)/1000,1), round(100 * df_trx_scores["is_deuce"].mean(),1), round(100 * df_trx_scores["is_tiebreak"].mean(),1), round(100 * df_trx_scores["is_game_point"].mean(),1), round(100 * df_trx_scores["is_set_point"].mean(),1), round(100 * df_trx_scores["is_match_point"].mean(),1))
 
