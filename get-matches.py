@@ -70,6 +70,25 @@ def extract_team_sides(players: dict) -> dict:
     return out
 
 
+def games_only(value: str) -> int:
+    """
+    Extract set games from values like:
+      "6"      -> 6
+      "6(5)"   -> 6
+      "7"      -> 7
+    """
+    return int(value.split("(", 1)[0])
+
+def match_score_from_sets(score):
+    wins = [
+        games_only(s["team_1"]) > games_only(s["team_2"])
+        for s in score
+    ]
+    team_1_sets = sum(wins)
+    team_2_sets = len(wins) - team_1_sets
+    return f"{team_1_sets}-{team_2_sets}"
+
+
 def parse_matches(df: pd.DataFrame) -> pd.DataFrame:
     # Flatten everything on first level (excluding players info)
     players_cols = df["players"].apply(extract_team_sides).apply(pd.Series)
@@ -78,6 +97,9 @@ def parse_matches(df: pd.DataFrame) -> pd.DataFrame:
         [df.drop(columns=["players"]), players_cols],
         axis=1
     )
+
+    # Get the match score in sets (e.g. "2-1") from the nested "score" structure
+    df_flat["score"] = df_flat["score"].apply(match_score_from_sets)
 
     df_flat["created_at"] = pd.Timestamp("now")
 

@@ -34,8 +34,12 @@ def transform_matches(df_raw_data):
         + pd.to_numeric(duration[1], errors="coerce")
     )
 
+    # get score from each team from nested structure (e.g. "2-1")
+    df_matches["team_1_score"] = df_matches["score"].str.split("-", expand=True)[0].astype("Int64")
+    df_matches["team_2_score"] = df_matches["score"].str.split("-", expand=True)[1].astype("Int64")
+
     df_matches["created_at"] = pd.Timestamp("now")
-    return df_matches.drop(columns=["duration"])
+    return df_matches.drop(columns=["duration", "score"])
 
 
 def add_set_scores(df):
